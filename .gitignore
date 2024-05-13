@@ -1,0 +1,13 @@
+*.egg-info
+.vscode
+work_dirs
+data
+logs
+results
+*build*
+*.so
+*.out
+*.pyc
+*.npy
+*.pth
+
