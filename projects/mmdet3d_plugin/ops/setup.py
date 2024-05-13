@@ -44,16 +44,22 @@ def make_cuda_ext(
 
 
 if __name__ == "__main__":
+    plugins = ['deform_agg']
+    sources = []
+    for plugin in plugins:
+        sources += [
+            f"csrc/{plugin}.cpp",
+            f"csrc/autocast/{plugin}_kernel.cpp",
+            f"csrc/autograd/{plugin}_kernel.cpp",
+            f"csrc/cuda/{plugin}_kernel.cu",
+        ]
     setup(
-        name="deformable_aggregation_ext",
+        name="custom_ops",
         ext_modules=[
             make_cuda_ext(
-                "deformable_aggregation_ext",
+                "custom_ops",
                 module=".",
-                sources=[
-                    f"src/deformable_aggregation.cpp",
-                    f"src/deformable_aggregation_cuda.cu",
-                ],
+                sources=sources,
             ),
         ],
         cmdclass={"build_ext": BuildExtension},

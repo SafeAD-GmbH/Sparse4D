@@ -4,10 +4,7 @@ from torch import nn
 import torch.nn.functional as F
 import numpy as np
 
-from mmcv.utils import build_from_cfg
-from mmcv.cnn.bricks.registry import PLUGIN_LAYERS
-
-from rich import print
+from mmdet3d.registry import MODELS
 
 __all__ = ["InstanceBank"]
 
@@ -22,7 +19,7 @@ def topk(confidence, k, *inputs):
     return confidence, outputs
 
 
-@PLUGIN_LAYERS.register_module()
+@MODELS.register_module()
 class InstanceBank(nn.Module):
     def __init__(
         self,
@@ -45,7 +42,7 @@ class InstanceBank(nn.Module):
         self.max_time_interval = max_time_interval
 
         if anchor_handler is not None:
-            anchor_handler = build_from_cfg(anchor_handler, PLUGIN_LAYERS)
+            anchor_handler = MODELS.build(anchor_handler)
             assert hasattr(anchor_handler, "anchor_projection")
         self.anchor_handler = anchor_handler
         if isinstance(anchor, str):
@@ -89,18 +86,19 @@ class InstanceBank(nn.Module):
             anchor = torch.tile(self.anchor[None], (batch_size, 1, 1))
 
         if (self.cached_anchor is not None and batch_size == self.cached_anchor.shape[0]):
-            history_time = self.metas["timestamp"]
-            time_interval = metas["timestamp"] - history_time
-            time_interval = time_interval.to(dtype=instance_feature.dtype)
+            # TODO: This should not be here, but in the datareader. timestamp and global poses should be an input, not in the metadata
+            history_time = [m.metainfo["timestamp"] for m in self.metas]
+            new_time = [m.metainfo["timestamp"] for m in metas]
+            history_time = np.stack(history_time, axis=0)
+            new_time = np.stack(new_time, axis=0)
+            time_interval = new_time - history_time
+            time_interval = torch.tensor(time_interval).to(instance_feature.dtype).to(instance_feature.device)
             self.mask = torch.abs(time_interval) <= self.max_time_interval
 
             if self.anchor_handler is not None:
                 T_temp2cur = self.cached_anchor.new_tensor(
                     np.stack(
-                        [
-                            x["T_global_inv"] @ self.metas["img_metas"][i]["T_global"]
-                            for i, x in enumerate(metas["img_metas"])
-                        ]
+                        [x.metainfo["T_global_inv"] @ self.metas[i].metainfo["T_global"] for i, x in enumerate(metas)]
                     )
                 )
                 self.cached_anchor = self.anchor_handler.anchor_projection(

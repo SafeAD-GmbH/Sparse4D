@@ -1,83 +1,12 @@
-import torch
 import numpy as np
+import mmengine
 import mmcv
-from mmdet.datasets.builder import PIPELINES
-from mmcv.parallel import DataContainer as DC
-from mmdet3d.datasets.pipelines.loading import LoadPointsFromFile
+from mmdet3d.registry import TRANSFORMS
+from mmdet3d.datasets.transforms import LoadPointsFromFile
 
-from pypcd import pypcd
 
-@PIPELINES.register_module()
-class CustomLoadPointsFromFile(LoadPointsFromFile):
-    """Load Points From File.
-    """
-    def __init__(self, *args, dataset='nuscenes', **kwargs):
-        super().__init__(*args, **kwargs)
-        self.dataset = dataset
-
-    def _load_points(self, pts_filename):
-        """Private function to load point clouds data.
-
-        Args:
-            pts_filename (str): Filename of point clouds data.
-
-        Returns:
-            np.ndarray: An array containing point clouds data.
-        """
-        if self.dataset == "nuscenes":
-            return super()._load_points(pts_filename)
-        elif self.dataset == "safead":
-            pc = pypcd.PointCloud.from_path(pts_filename)
-            pc_data = pc.pc_data  # has 4 fields [x, y, z, intensity]
-            points = np.array([pc_data["x"], pc_data["y"], pc_data["z"], pc_data["intensity"]], dtype=np.float32).T
-            points = points[~np.isnan(points).any(axis=1), :]
-            return points
-
-    def __call__(self, results):
-        """Call function to load points data from file.
-
-        Args:
-            results (dict): Result dict containing point clouds data.
-
-        Returns:
-            dict: The result dict containing the point clouds data.
-                Added key and value are described below.
-
-                - points (:obj:`BasePoints`): Point clouds data.
-        """
-        pts_filename = results["pts_filename"]
-        points = self._load_points(pts_filename)
-        points = points.reshape(-1, self.load_dim)
-        points = points[:, self.use_dim]
-        attribute_dims = None
-
-        if self.shift_height:
-            floor_height = np.percentile(points[:, 2], 0.99)
-            height = points[:, 2] - floor_height
-            points = np.concatenate(
-                [points[:, :3], np.expand_dims(height, 1), points[:, 3:]], 1
-            )
-            attribute_dims = dict(height=3)
-
-        if self.use_color:
-            assert len(self.use_dim) >= 6
-            if attribute_dims is None:
-                attribute_dims = dict()
-            attribute_dims.update(
-                dict(
-                    color=[
-                        points.shape[1] - 3,
-                        points.shape[1] - 2,
-                        points.shape[1] - 1,
-                    ]
-                )
-            )
-
-        results["points"] = points
-        return results
-
-@PIPELINES.register_module()
-class LoadMultiViewImageFromFiles(object):
+@TRANSFORMS.register_module()
+class CustomLoadMultiViewImageFromFiles(object):
     """Load multi channel images from a list of separate channel files.
 
     Expects results['img_filename'] to be a list of filenames.
@@ -88,7 +17,6 @@ class LoadMultiViewImageFromFiles(object):
         color_type (str, optional): Color type of the file.
             Defaults to 'unchanged'.
     """
-
     def __init__(self, to_float32=False, color_type="unchanged"):
         self.to_float32 = to_float32
         self.color_type = color_type
@@ -113,9 +41,7 @@ class LoadMultiViewImageFromFiles(object):
         """
         filename = results["img_filename"]
         # img is of shape (h, w, c, num_views)
-        img = np.stack(
-            [mmcv.imread(name, self.color_type) for name in filename], axis=-1
-        )
+        img = np.stack([mmcv.image.imread(name, self.color_type) for name in filename], axis=-1)
         if self.to_float32:
             img = img.astype(np.float32)
         results["filename"] = filename
@@ -143,8 +69,8 @@ class LoadMultiViewImageFromFiles(object):
         return repr_str
 
 
-@PIPELINES.register_module()
-class LoadPointsFromFile(object):
+@TRANSFORMS.register_module()
+class BaseLoadPointsFromFile(object):
     """Load Points From File.
 
     Load points from file.
@@ -169,7 +95,6 @@ class LoadPointsFromFile(object):
             https://github.com/open-mmlab/mmcv/blob/master/mmcv/fileio/file_client.py
             for more details. Defaults to dict(backend='disk').
     """
-
     def __init__(
         self,
         coord_type,
@@ -183,9 +108,7 @@ class LoadPointsFromFile(object):
         self.use_color = use_color
         if isinstance(use_dim, int):
             use_dim = list(range(use_dim))
-        assert (
-            max(use_dim) < load_dim
-        ), f"Expect all used dimensions < {load_dim}, got {use_dim}"
+        assert (max(use_dim) < load_dim), f"Expect all used dimensions < {load_dim}, got {use_dim}"
         assert coord_type in ["CAMERA", "LIDAR", "DEPTH"]
 
         self.coord_type = coord_type
@@ -204,12 +127,12 @@ class LoadPointsFromFile(object):
             np.ndarray: An array containing point clouds data.
         """
         if self.file_client is None:
-            self.file_client = mmcv.FileClient(**self.file_client_args)
+            self.file_client = mmengine.fileio.FileClient(**self.file_client_args)
         try:
             pts_bytes = self.file_client.get(pts_filename)
             points = np.frombuffer(pts_bytes, dtype=np.float32)
         except ConnectionError:
-            mmcv.check_file_exist(pts_filename)
+            mmengine.check_file_exist(pts_filename)
             if pts_filename.endswith(".npy"):
                 points = np.load(pts_filename)
             else:
@@ -238,24 +161,18 @@ class LoadPointsFromFile(object):
         if self.shift_height:
             floor_height = np.percentile(points[:, 2], 0.99)
             height = points[:, 2] - floor_height
-            points = np.concatenate(
-                [points[:, :3], np.expand_dims(height, 1), points[:, 3:]], 1
-            )
+            points = np.concatenate([points[:, :3], np.expand_dims(height, 1), points[:, 3:]], 1)
             attribute_dims = dict(height=3)
 
         if self.use_color:
             assert len(self.use_dim) >= 6
             if attribute_dims is None:
                 attribute_dims = dict()
-            attribute_dims.update(
-                dict(
-                    color=[
-                        points.shape[1] - 3,
-                        points.shape[1] - 2,
-                        points.shape[1] - 1,
-                    ]
-                )
-            )
+            attribute_dims.update(dict(color=[
+                points.shape[1] - 3,
+                points.shape[1] - 2,
+                points.shape[1] - 1,
+            ]))
 
         results["points"] = points
         return results

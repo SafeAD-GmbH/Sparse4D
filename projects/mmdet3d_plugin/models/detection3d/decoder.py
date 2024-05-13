@@ -3,12 +3,12 @@ from typing import Optional
 
 import torch
 
-from mmdet.core.bbox.builder import BBOX_CODERS
+from mmdet3d.registry import MODELS
 
 from projects.mmdet3d_plugin.core.box3d import *
 
 
-@BBOX_CODERS.register_module()
+@MODELS.register_module()
 class SparseBox3DDecoder(object):
     def __init__(
         self,
@@ -52,9 +52,7 @@ class SparseBox3DDecoder(object):
 
         box_preds = box_preds[output_idx]
         bs, num_pred, num_cls = cls_scores.shape
-        cls_scores, indices = cls_scores.flatten(start_dim=1).topk(
-            self.num_output, dim=1, sorted=self.sorted
-        )
+        cls_scores, indices = cls_scores.flatten(start_dim=1).topk(self.num_output, dim=1, sorted=self.sorted)
         if not squeeze_cls:
             cls_ids = indices % num_cls
         if self.score_threshold is not None:
@@ -89,13 +87,11 @@ class SparseBox3DDecoder(object):
                     scores_origin = scores_origin[mask[i]]
 
             box = self.decode_box(box)
-            output.append(
-                {
-                    "boxes_3d": box.cpu(),
-                    "scores_3d": scores.cpu(),
-                    "labels_3d": category_ids.cpu(),
-                }
-            )
+            output.append({
+                "boxes_3d": box.cpu(),
+                "scores_3d": scores.cpu(),
+                "labels_3d": category_ids.cpu(),
+            })
             if qulity is not None:
                 output[-1]["cls_scores"] = scores_origin.cpu()
             if instance_id is not None:

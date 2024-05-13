@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 
-
 __all__ = ["BaseTargetWithDenoising"]
 
 
@@ -46,4 +45,4 @@ class BaseTargetWithDenoising(ABC):
         """
         if self.num_temp_dn_groups < 0:
             return
-        self.dn_metas = dict(dn_anchor=dn_anchor[:, : self.num_temp_dn_groups])
+        self.dn_metas = dict(dn_anchor=dn_anchor[:, :self.num_temp_dn_groups])

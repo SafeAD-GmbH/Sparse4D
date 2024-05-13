@@ -1,24 +1,12 @@
 # Copyright (c) Horizon Robotics. All rights reserved.
-from typing import List, Optional, Tuple, Union
-import warnings
+from typing import List, Optional, Union
 
-import numpy as np
 import torch
 import torch.nn as nn
 
-from mmcv.cnn.bricks.registry import (
-    ATTENTION,
-    PLUGIN_LAYERS,
-    POSITIONAL_ENCODING,
-    FEEDFORWARD_NETWORK,
-    NORM_LAYERS,
-)
-from mmcv.runner import BaseModule, force_fp32
-from mmcv.utils import build_from_cfg
-from mmdet.core.bbox.builder import BBOX_SAMPLERS
-from mmdet.core.bbox.builder import BBOX_CODERS
-from mmdet.models import HEADS, LOSSES
-from mmdet.core import reduce_mean
+from mmdet3d.registry import MODELS
+from mmengine.model import BaseModule
+from mmdet.utils import reduce_mean
 
 from .blocks import DeformableFeatureAggregation as DFG
 
@@ -27,7 +15,7 @@ from rich import print
 __all__ = ["Sparse4DHead"]
 
 
-@HEADS.register_module()
+@MODELS.register_module()
 class Sparse4DHead(BaseModule):
     def __init__(
         self,
@@ -45,8 +33,6 @@ class Sparse4DHead(BaseModule):
         loss_reg: dict = None,
         decoder: dict = None,
         sampler: dict = None,
-        gt_cls_key: str = "gt_labels_3d",
-        gt_reg_key: str = "gt_bboxes_3d",
         reg_weights: List = None,
         operation_order: Optional[List[str]] = None,
         cls_threshold_to_reg: float = -1,
@@ -58,8 +44,6 @@ class Sparse4DHead(BaseModule):
         super(Sparse4DHead, self).__init__(init_cfg)
         self.num_decoder = num_decoder
         self.num_single_frame_decoder = num_single_frame_decoder
-        self.gt_cls_key = gt_cls_key
-        self.gt_reg_key = gt_reg_key
         self.cls_threshold_to_reg = cls_threshold_to_reg
         self.dn_loss_weight = dn_loss_weight
         self.decouple_attn = decouple_attn
@@ -76,26 +60,26 @@ class Sparse4DHead(BaseModule):
         self.operation_order = operation_order
 
         # =========== build modules ===========
-        def build(cfg, registry):
+        def build(cfg):
             if cfg is None:
                 return None
-            return build_from_cfg(cfg, registry)
+            return MODELS.build(cfg)
 
-        self.instance_bank = build(instance_bank, PLUGIN_LAYERS)
-        self.anchor_encoder = build(anchor_encoder, POSITIONAL_ENCODING)
-        self.sampler = build(sampler, BBOX_SAMPLERS)
-        self.decoder = build(decoder, BBOX_CODERS)
-        self.loss_cls = build(loss_cls, LOSSES)
-        self.loss_reg = build(loss_reg, LOSSES)
+        self.instance_bank = build(instance_bank)
+        self.anchor_encoder = build(anchor_encoder)
+        self.sampler = build(sampler)
+        self.decoder = build(decoder)
+        self.loss_cls = build(loss_cls)
+        self.loss_reg = build(loss_reg)
         self.op_config_map = {
-            "temp_gnn": [temp_graph_model, ATTENTION],
-            "gnn": [graph_model, ATTENTION],
-            "norm": [norm_layer, NORM_LAYERS],
-            "ffn": [ffn, FEEDFORWARD_NETWORK],
-            "deformable": [deformable_model, ATTENTION],
-            "refine": [refine_layer, PLUGIN_LAYERS],
+            "temp_gnn": temp_graph_model,
+            "gnn": graph_model,
+            "norm": norm_layer,
+            "ffn": ffn,
+            "deformable": deformable_model,
+            "refine": refine_layer,
         }
-        self.layers = nn.ModuleList([build(*self.op_config_map.get(op, [None, None])) for op in self.operation_order])
+        self.layers = nn.ModuleList([build(self.op_config_map.get(op, None)) for op in self.operation_order])
         self.embed_dims = self.instance_bank.embed_dims
         if self.decouple_attn:
             self.fc_before = nn.Linear(self.embed_dims, self.embed_dims * 2, bias=False)
@@ -142,10 +126,11 @@ class Sparse4DHead(BaseModule):
             **kwargs,
         ))
 
+    @torch.cuda.amp.custom_fwd(cast_inputs=torch.float32)
     def forward(
         self,
         feature_maps: Union[torch.Tensor, List],
-        metas: dict,
+        metas: list,
     ):
         if isinstance(feature_maps, torch.Tensor):
             feature_maps = [feature_maps]
@@ -170,13 +155,15 @@ class Sparse4DHead(BaseModule):
         dn_metas = None
         temp_dn_reg_target = None
         if self.training and hasattr(self.sampler, "get_dn_anchors"):
-            if "instance_id" in metas["img_metas"][0]:
-                gt_instance_id = [torch.from_numpy(x["instance_id"]).cuda() for x in metas["img_metas"]]
+            if "instance_id" in metas[0].metainfo:
+                gt_instance_id = [torch.from_numpy(x.metainfo["instance_id"]).cuda() for x in metas]
             else:
                 gt_instance_id = None
+            gt_labels_3d = [meta.gt_instances_3d['labels_3d'] for meta in metas]
+            gt_bboxes_3d = [meta.gt_instances_3d['bboxes_3d'] for meta in metas]
             dn_metas = self.sampler.get_dn_anchors(
-                metas[self.gt_cls_key],
-                metas[self.gt_reg_key],
+                gt_labels_3d,
+                gt_bboxes_3d,
                 gt_instance_id,
             )
         if dn_metas is not None:
@@ -350,7 +337,7 @@ class Sparse4DHead(BaseModule):
             output["instance_id"] = instance_id
         return output
 
-    @force_fp32(apply_to=("model_outs"))
+    @torch.cuda.amp.custom_fwd(cast_inputs=torch.float32)
     def loss(self, model_outs, data, feature_maps=None):
         # ===================== prediction losses ======================
         cls_scores = model_outs["classification"]
@@ -359,11 +346,13 @@ class Sparse4DHead(BaseModule):
         output = {}
         for decoder_idx, (cls, reg, qt) in enumerate(zip(cls_scores, reg_preds, quality)):
             reg = reg[..., :len(self.reg_weights)]
+            gt_labels_3d = [meta.gt_instances_3d['labels_3d'] for meta in data]
+            gt_bboxes_3d = [meta.gt_instances_3d['bboxes_3d'] for meta in data]
             cls_target, reg_target, reg_weights = self.sampler.sample(
                 cls,
                 reg,
-                data[self.gt_cls_key],
-                data[self.gt_reg_key],
+                gt_labels_3d,
+                gt_bboxes_3d,
             )
             reg_target = reg_target[..., :len(self.reg_weights)]
             mask = torch.logical_not(torch.all(reg_target == 0, dim=-1))
@@ -464,7 +453,7 @@ class Sparse4DHead(BaseModule):
             num_dn_pos,
         )
 
-    @force_fp32(apply_to=("model_outs"))
+    @torch.cuda.amp.custom_fwd(cast_inputs=torch.float32)
     def post_process(self, model_outs, output_idx=-1):
         return self.decoder.decode(
             model_outs["classification"],

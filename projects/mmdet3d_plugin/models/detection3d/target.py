@@ -3,16 +3,15 @@ import numpy as np
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 
-from mmdet.core.bbox.builder import BBOX_SAMPLERS
+from mmdet3d.registry import MODELS
 
 from projects.mmdet3d_plugin.core.box3d import *
 from ..base_target import BaseTargetWithDenoising
 
-
 __all__ = ["SparseBox3DTarget"]
 
 
-@BBOX_SAMPLERS.register_module()
+@MODELS.register_module()
 class SparseBox3DTarget(BaseTargetWithDenoising):
     def __init__(
         self,
@@ -29,9 +28,7 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
         add_neg_dn=True,
         num_temp_dn_groups=0,
     ):
-        super(SparseBox3DTarget, self).__init__(
-            num_dn_groups, num_temp_dn_groups
-        )
+        super(SparseBox3DTarget, self).__init__(num_dn_groups, num_temp_dn_groups)
         self.cls_weight = cls_weight
         self.box_weight = box_weight
         self.alpha = alpha
@@ -54,7 +51,7 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
                     box[..., [W, L, H]].log(),
                     torch.sin(box[..., YAW]).unsqueeze(-1),
                     torch.cos(box[..., YAW]).unsqueeze(-1),
-                    box[..., YAW + 1 :],
+                    box[..., YAW + 1:],
                 ],
                 dim=-1,
             )
@@ -78,9 +75,7 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
 
         instance_reg_weights = []
         for i in range(len(box_target)):
-            weights = torch.logical_not(box_target[i].isnan()).to(
-                dtype=box_target[i].dtype
-            )
+            weights = torch.logical_not(box_target[i].isnan()).to(dtype=box_target[i].dtype)
             if self.cls_wise_reg_weights is not None:
                 for cls, weight in self.cls_wise_reg_weights.items():
                     weights = torch.where(
@@ -97,15 +92,11 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
                 cost = (cls_cost[i] + box_cost[i]).detach().cpu().numpy()
                 cost = np.where(np.isneginf(cost) | np.isnan(cost), 1e8, cost)
                 assign = linear_sum_assignment(cost)
-                indices.append(
-                    [cls_pred.new_tensor(x, dtype=torch.int64) for x in assign]
-                )
+                indices.append([cls_pred.new_tensor(x, dtype=torch.int64) for x in assign])
             else:
                 indices.append([None, None])
 
-        output_cls_target = (
-            cls_target[0].new_ones([bs, num_pred], dtype=torch.long) * num_cls
-        )
+        output_cls_target = (cls_target[0].new_ones([bs, num_pred], dtype=torch.long) * num_cls)
         output_box_target = box_pred.new_zeros(box_pred.shape)
         output_reg_weights = box_pred.new_zeros(box_pred.shape)
         for i, (pred_idx, target_idx) in enumerate(indices):
@@ -113,9 +104,7 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
                 continue
             output_cls_target[i, pred_idx] = cls_target[i][target_idx]
             output_box_target[i, pred_idx] = box_target[i][target_idx]
-            output_reg_weights[i, pred_idx] = instance_reg_weights[i][
-                target_idx
-            ]
+            output_reg_weights[i, pred_idx] = instance_reg_weights[i][target_idx]
         return output_cls_target, output_box_target, output_reg_weights
 
     def _cls_cost(self, cls_pred, cls_target):
@@ -124,20 +113,9 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
         cost = []
         for i in range(bs):
             if len(cls_target[i]) > 0:
-                neg_cost = (
-                    -(1 - cls_pred[i] + self.eps).log()
-                    * (1 - self.alpha)
-                    * cls_pred[i].pow(self.gamma)
-                )
-                pos_cost = (
-                    -(cls_pred[i] + self.eps).log()
-                    * self.alpha
-                    * (1 - cls_pred[i]).pow(self.gamma)
-                )
-                cost.append(
-                    (pos_cost[:, cls_target[i]] - neg_cost[:, cls_target[i]])
-                    * self.cls_weight
-                )
+                neg_cost = (-(1 - cls_pred[i] + self.eps).log() * (1 - self.alpha) * cls_pred[i].pow(self.gamma))
+                pos_cost = (-(cls_pred[i] + self.eps).log() * self.alpha * (1 - cls_pred[i]).pow(self.gamma))
+                cost.append((pos_cost[:, cls_target[i]] - neg_cost[:, cls_target[i]]) * self.cls_weight)
             else:
                 cost.append(None)
         return cost
@@ -149,12 +127,10 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
             if len(box_target[i]) > 0:
                 cost.append(
                     torch.sum(
-                        torch.abs(box_pred[i, :, None] - box_target[i][None])
-                        * instance_reg_weights[i][None]
-                        * box_pred.new_tensor(self.reg_weights),
+                        torch.abs(box_pred[i, :, None] - box_target[i][None]) * instance_reg_weights[i][None] *
+                        box_pred.new_tensor(self.reg_weights),
                         dim=-1,
-                    )
-                    * self.box_weight
+                    ) * self.box_weight
                 )
             else:
                 cost.append(None)
@@ -167,34 +143,20 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
             gt_instance_id = None
 
         if self.max_dn_gt > 0:
-            cls_target = [x[: self.max_dn_gt] for x in cls_target]
-            box_target = [x[: self.max_dn_gt] for x in box_target]
+            cls_target = [x[:self.max_dn_gt] for x in cls_target]
+            box_target = [x[:self.max_dn_gt] for x in box_target]
             if gt_instance_id is not None:
-                gt_instance_id = [x[: self.max_dn_gt] for x in gt_instance_id]
+                gt_instance_id = [x[:self.max_dn_gt] for x in gt_instance_id]
 
         max_dn_gt = max([len(x) for x in cls_target])
         if max_dn_gt == 0:
             return None
-        cls_target = torch.stack(
-            [
-                F.pad(x, (0, max_dn_gt - x.shape[0]), value=-1)
-                for x in cls_target
-            ]
-        )
+        cls_target = torch.stack([F.pad(x, (0, max_dn_gt - x.shape[0]), value=-1) for x in cls_target])
         box_target = self.encode_reg_target(box_target, cls_target.device)
-        box_target = torch.stack(
-            [F.pad(x, (0, 0, 0, max_dn_gt - x.shape[0])) for x in box_target]
-        )
-        box_target = torch.where(
-            cls_target[..., None] == -1, box_target.new_tensor(0), box_target
-        )
+        box_target = torch.stack([F.pad(x, (0, 0, 0, max_dn_gt - x.shape[0])) for x in box_target])
+        box_target = torch.where(cls_target[..., None] == -1, box_target.new_tensor(0), box_target)
         if gt_instance_id is not None:
-            gt_instance_id = torch.stack(
-                [
-                    F.pad(x, (0, max_dn_gt - x.shape[0]), value=-1)
-                    for x in gt_instance_id
-                ]
-            )
+            gt_instance_id = torch.stack([F.pad(x, (0, max_dn_gt - x.shape[0]), value=-1) for x in gt_instance_id])
 
         bs, num_gt, state_dims = box_target.shape
         if self.num_dn_groups > 1:
@@ -218,9 +180,7 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
             dn_anchor = torch.cat([dn_anchor, box_target + noise_neg], dim=1)
             num_gt *= 2
 
-        box_cost = self._box_cost(
-            dn_anchor, box_target, torch.ones_like(box_target)
-        )
+        box_cost = self._box_cost(dn_anchor, box_target, torch.ones_like(box_target))
         dn_box_target = torch.zeros_like(dn_anchor)
         dn_cls_target = -torch.ones_like(cls_target) * 3
         if gt_instance_id is not None:
@@ -239,43 +199,25 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
             dn_cls_target[i, anchor_idx] = cls_target[i, gt_idx]
             if gt_instance_id is not None:
                 dn_id_target[i, anchor_idx] = gt_instance_id[i, gt_idx]
-        dn_anchor = (
-            dn_anchor.reshape(self.num_dn_groups, bs, num_gt, state_dims)
-            .permute(1, 0, 2, 3)
-            .flatten(1, 2)
-        )
+        dn_anchor = (dn_anchor.reshape(self.num_dn_groups, bs, num_gt, state_dims).permute(1, 0, 2, 3).flatten(1, 2))
         dn_box_target = (
-            dn_box_target.reshape(self.num_dn_groups, bs, num_gt, state_dims)
-            .permute(1, 0, 2, 3)
-            .flatten(1, 2)
+            dn_box_target.reshape(self.num_dn_groups, bs, num_gt, state_dims).permute(1, 0, 2, 3).flatten(1, 2)
         )
-        dn_cls_target = (
-            dn_cls_target.reshape(self.num_dn_groups, bs, num_gt)
-            .permute(1, 0, 2)
-            .flatten(1)
-        )
+        dn_cls_target = (dn_cls_target.reshape(self.num_dn_groups, bs, num_gt).permute(1, 0, 2).flatten(1))
         if gt_instance_id is not None:
-            dn_id_target = (
-                dn_id_target.reshape(self.num_dn_groups, bs, num_gt)
-                .permute(1, 0, 2)
-                .flatten(1)
-            )
+            dn_id_target = (dn_id_target.reshape(self.num_dn_groups, bs, num_gt).permute(1, 0, 2).flatten(1))
         else:
             dn_id_target = None
         valid_mask = dn_cls_target >= 0
         if self.add_neg_dn:
             cls_target = (
-                torch.cat([cls_target, cls_target], dim=1)
-                .reshape(self.num_dn_groups, bs, num_gt)
-                .permute(1, 0, 2)
-                .flatten(1)
+                torch.cat([cls_target, cls_target], dim=1).reshape(self.num_dn_groups, bs,
+                                                                   num_gt).permute(1, 0, 2).flatten(1)
             )
             valid_mask = torch.logical_or(
                 valid_mask, ((cls_target >= 0) & (dn_cls_target == -3))
             )  # valid denotes the items is not from pad.
-        attn_mask = dn_box_target.new_ones(
-            num_gt * self.num_dn_groups, num_gt * self.num_dn_groups
-        )
+        attn_mask = dn_box_target.new_ones(num_gt * self.num_dn_groups, num_gt * self.num_dn_groups)
         for i in range(self.num_dn_groups):
             start = num_gt * i
             end = start + num_gt
@@ -341,9 +283,7 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
 
         # bs, num_temp_dn_groups, num_temp_dn, num_dn
         match = temp_dn_id[..., None] == dn_id[:, :num_temp_dn_groups, None]
-        temp_reg_target = (
-            match[..., None] * dn_reg_target[:, :num_temp_dn_groups, None]
-        ).sum(dim=3)
+        temp_reg_target = (match[..., None] * dn_reg_target[:, :num_temp_dn_groups, None]).sum(dim=3)
         temp_cls_target = torch.where(
             torch.all(torch.logical_not(match), dim=-1),
             self.dn_metas["dn_cls_target"].new_tensor(-1),
@@ -384,9 +324,7 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
             mask = temporal_valid_mask[:, None, None]
             if meta.dim() == 4:
                 mask = mask.unsqueeze(dim=-1)
-            temp_meta = torch.where(
-                mask, temp_meta, meta[:, :num_temp_dn_groups]
-            )
+            temp_meta = torch.where(mask, temp_meta, meta[:, :num_temp_dn_groups])
             meta = torch.cat([temp_meta, meta[:, num_temp_dn_groups:]], dim=1)
             meta = meta.flatten(1, 2)
             output.append(meta)
@@ -407,26 +345,15 @@ class SparseBox3DTarget(BaseTargetWithDenoising):
         num_dn_groups = self.num_dn_groups
         bs, num_dn = dn_instance_feature.shape[:2]
         num_temp_dn = num_dn // num_dn_groups
-        temp_group_mask = (
-            torch.randperm(num_dn_groups) < self.num_temp_dn_groups
-        )
+        temp_group_mask = (torch.randperm(num_dn_groups) < self.num_temp_dn_groups)
         temp_group_mask = temp_group_mask.to(device=dn_anchor.device)
-        dn_instance_feature = dn_instance_feature.detach().reshape(
-            bs, num_dn_groups, num_temp_dn, -1
-        )[:, temp_group_mask]
-        dn_anchor = dn_anchor.detach().reshape(
-            bs, num_dn_groups, num_temp_dn, -1
-        )[:, temp_group_mask]
-        dn_cls_target = dn_cls_target.reshape(bs, num_dn_groups, num_temp_dn)[
-            :, temp_group_mask
-        ]
-        valid_mask = valid_mask.reshape(bs, num_dn_groups, num_temp_dn)[
-            :, temp_group_mask
-        ]
+        dn_instance_feature = dn_instance_feature.detach().reshape(bs, num_dn_groups, num_temp_dn, -1)[:,
+                                                                                                       temp_group_mask]
+        dn_anchor = dn_anchor.detach().reshape(bs, num_dn_groups, num_temp_dn, -1)[:, temp_group_mask]
+        dn_cls_target = dn_cls_target.reshape(bs, num_dn_groups, num_temp_dn)[:, temp_group_mask]
+        valid_mask = valid_mask.reshape(bs, num_dn_groups, num_temp_dn)[:, temp_group_mask]
         if dn_id_target is not None:
-            dn_id_target = dn_id_target.reshape(
-                bs, num_dn_groups, num_temp_dn
-            )[:, temp_group_mask]
+            dn_id_target = dn_id_target.reshape(bs, num_dn_groups, num_temp_dn)[:, temp_group_mask]
         self.dn_metas = dict(
             dn_instance_feature=dn_instance_feature,
             dn_anchor=dn_anchor,

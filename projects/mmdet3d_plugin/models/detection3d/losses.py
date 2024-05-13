@@ -1,13 +1,12 @@
 import torch
 import torch.nn as nn
 
-from mmcv.utils import build_from_cfg
-from mmdet.models.builder import LOSSES
+from mmdet3d.registry import MODELS
 
 from projects.mmdet3d_plugin.core.box3d import *
 
 
-@LOSSES.register_module()
+@MODELS.register_module()
 class SparseBox3DLoss(nn.Module):
     def __init__(
         self,
@@ -18,14 +17,14 @@ class SparseBox3DLoss(nn.Module):
     ):
         super().__init__()
 
-        def build(cfg, registry):
+        def build(cfg):
             if cfg is None:
                 return None
-            return build_from_cfg(cfg, registry)
+            return MODELS.build(cfg)
 
-        self.loss_box = build(loss_box, LOSSES)
-        self.loss_cns = build(loss_centerness, LOSSES)
-        self.loss_yns = build(loss_yawness, LOSSES)
+        self.loss_box = build(loss_box)
+        self.loss_cns = build(loss_centerness)
+        self.loss_yns = build(loss_yawness)
         self.cls_allow_reverse = cls_allow_reverse
 
     def forward(
@@ -47,15 +46,9 @@ class SparseBox3DLoss(nn.Module):
                     box_target[..., [SIN_YAW, COS_YAW]],
                     box[..., [SIN_YAW, COS_YAW]],
                     dim=-1,
-                )
-                < 0
+                ) < 0
             )
-            if_reverse = (
-                torch.isin(
-                    cls_target, cls_target.new_tensor(self.cls_allow_reverse)
-                )
-                & if_reverse
-            )
+            if_reverse = (torch.isin(cls_target, cls_target.new_tensor(self.cls_allow_reverse)) & if_reverse)
             box_target[..., [SIN_YAW, COS_YAW]] = torch.where(
                 if_reverse[..., None],
                 -box_target[..., [SIN_YAW, COS_YAW]],
@@ -63,17 +56,13 @@ class SparseBox3DLoss(nn.Module):
             )
 
         output = {}
-        box_loss = self.loss_box(
-            box, box_target, weight=weight, avg_factor=avg_factor
-        )
+        box_loss = self.loss_box(box, box_target, weight=weight, avg_factor=avg_factor)
         output[f"loss_box{suffix}"] = box_loss
 
         if quality is not None:
             cns = quality[..., CNS]
             yns = quality[..., YNS].sigmoid()
-            cns_target = torch.norm(
-                box_target[..., [X, Y, Z]] - box[..., [X, Y, Z]], p=2, dim=-1
-            )
+            cns_target = torch.norm(box_target[..., [X, Y, Z]] - box[..., [X, Y, Z]], p=2, dim=-1)
             cns_target = torch.exp(-cns_target)
             cns_loss = self.loss_cns(cns, cns_target, avg_factor=avg_factor)
             output[f"loss_cns{suffix}"] = cns_loss
@@ -83,8 +72,7 @@ class SparseBox3DLoss(nn.Module):
                     box_target[..., [SIN_YAW, COS_YAW]],
                     box[..., [SIN_YAW, COS_YAW]],
                     dim=-1,
-                )
-                > 0
+                ) > 0
             )
             yns_target = yns_target.float()
             yns_loss = self.loss_yns(yns, yns_target, avg_factor=avg_factor)

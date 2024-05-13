@@ -5,9 +5,7 @@ from PIL import Image
 
 
 class Grid(object):
-    def __init__(
-        self, use_h, use_w, rotate=1, offset=False, ratio=0.5, mode=0, prob=1.0
-    ):
+    def __init__(self, use_h, use_w, rotate=1, offset=False, ratio=0.5, mode=0, prob=1.0):
         self.use_h = use_h
         self.use_w = use_w
         self.rotate = rotate
@@ -53,8 +51,8 @@ class Grid(object):
         mask = mask.rotate(r)
         mask = np.asarray(mask)
         mask = mask[
-            (hh - h) // 2 : (hh - h) // 2 + h,
-            (ww - w) // 2 : (ww - w) // 2 + w,
+            (hh - h) // 2:(hh - h) // 2 + h,
+            (ww - w) // 2:(ww - w) // 2 + w,
         ]
 
         mask = torch.from_numpy(mask).float()
@@ -73,9 +71,7 @@ class Grid(object):
 
 
 class GridMask(nn.Module):
-    def __init__(
-        self, use_h, use_w, rotate=1, offset=False, ratio=0.5, mode=0, prob=1.0
-    ):
+    def __init__(self, use_h, use_w, rotate=1, offset=False, ratio=0.5, mode=0, prob=1.0):
         super(GridMask, self).__init__()
         self.use_h = use_h
         self.use_w = use_w
@@ -117,8 +113,8 @@ class GridMask(nn.Module):
         mask = mask.rotate(r)
         mask = np.asarray(mask)
         mask = mask[
-            (hh - h) // 2 : (hh - h) // 2 + h,
-            (ww - w) // 2 : (ww - w) // 2 + w,
+            (hh - h) // 2:(hh - h) // 2 + h,
+            (ww - w) // 2:(ww - w) // 2 + w,
         ]
 
         mask = torch.from_numpy(mask.copy()).float().cuda()
@@ -126,11 +122,7 @@ class GridMask(nn.Module):
             mask = 1 - mask
         mask = mask.expand_as(x)
         if self.offset:
-            offset = (
-                torch.from_numpy(2 * (np.random.rand(h, w) - 0.5))
-                .float()
-                .cuda()
-            )
+            offset = (torch.from_numpy(2 * (np.random.rand(h, w) - 0.5)).float().cuda())
             x = x * mask + offset * (1 - mask)
         else:
             x = x * mask

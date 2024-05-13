@@ -4,7 +4,7 @@ work_dirs
 data
 logs
 results
-*build*
+*build/
 *.so
 *.out
 *.pyc

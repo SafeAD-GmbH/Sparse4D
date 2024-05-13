@@ -2,13 +2,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from mmcv.cnn import Linear, Scale, bias_init_with_prob
-from mmcv.runner.base_module import Sequential, BaseModule
-from mmcv.cnn import xavier_init
-from mmcv.cnn.bricks.registry import (
-    PLUGIN_LAYERS,
-    POSITIONAL_ENCODING,
-)
+from mmcv.cnn import Linear, Scale
+from mmengine.model import BaseModule
+from mmengine.model import (xavier_init, bias_init_with_prob)
+from mmdet3d.registry import MODELS
 
 from projects.mmdet3d_plugin.core.box3d import *
 from ..blocks import linear_relu_ln
@@ -20,7 +17,7 @@ __all__ = [
 ]
 
 
-@POSITIONAL_ENCODING.register_module()
+@MODELS.register_module()
 class SparseBox3DEncoder(BaseModule):
     def __init__(
         self,
@@ -38,9 +35,7 @@ class SparseBox3DEncoder(BaseModule):
         self.mode = mode
 
         def embedding_layer(input_dims, output_dims):
-            return nn.Sequential(
-                *linear_relu_ln(output_dims, in_loops, out_loops, input_dims)
-            )
+            return nn.Sequential(*linear_relu_ln(output_dims, in_loops, out_loops, input_dims))
 
         if not isinstance(embed_dims, (list, tuple)):
             embed_dims = [embed_dims] * 5
@@ -64,7 +59,7 @@ class SparseBox3DEncoder(BaseModule):
             output = torch.cat([pos_feat, size_feat, yaw_feat], dim=-1)
 
         if self.vel_dims > 0:
-            vel_feat = self.vel_fc(box_3d[..., VX : VX + self.vel_dims])
+            vel_feat = self.vel_fc(box_3d[..., VX:VX + self.vel_dims])
             if self.mode == "add":
                 output = output + vel_feat
             elif self.mode == "cat":
@@ -74,7 +69,7 @@ class SparseBox3DEncoder(BaseModule):
         return output
 
 
-@PLUGIN_LAYERS.register_module()
+@MODELS.register_module()
 class SparseBox3DRefinementModule(BaseModule):
     def __init__(
         self,
@@ -130,13 +125,9 @@ class SparseBox3DRefinementModule(BaseModule):
     ):
         feature = instance_feature + anchor_embed
         output = self.layers(feature)
-        output[..., self.refine_state] = (
-            output[..., self.refine_state] + anchor[..., self.refine_state]
-        )
+        output[..., self.refine_state] = (output[..., self.refine_state] + anchor[..., self.refine_state])
         if self.normalize_yaw:
-            output[..., [SIN_YAW, COS_YAW]] = torch.nn.functional.normalize(
-                output[..., [SIN_YAW, COS_YAW]], dim=-1
-            )
+            output[..., [SIN_YAW, COS_YAW]] = torch.nn.functional.normalize(output[..., [SIN_YAW, COS_YAW]], dim=-1)
         if self.output_dim > 8:
             if not isinstance(time_interval, torch.Tensor):
                 time_interval = instance_feature.new_tensor(time_interval)
@@ -156,7 +147,7 @@ class SparseBox3DRefinementModule(BaseModule):
         return output, cls, quality
 
 
-@PLUGIN_LAYERS.register_module()
+@MODELS.register_module()
 class SparseBox3DKeyPointsGenerator(BaseModule):
     def __init__(
         self,
@@ -168,10 +159,8 @@ class SparseBox3DKeyPointsGenerator(BaseModule):
         self.embed_dims = embed_dims
         self.num_learnable_pts = num_learnable_pts
         if fix_scale is None:
-            fix_scale = ((0.0, 0.0, 0.0),)
-        self.fix_scale = nn.Parameter(
-            torch.tensor(fix_scale), requires_grad=False
-        )
+            fix_scale = ((0.0, 0.0, 0.0), )
+        self.fix_scale = nn.Parameter(torch.tensor(fix_scale), requires_grad=False)
         self.num_pts = len(self.fix_scale) + num_learnable_pts
         if num_learnable_pts > 0:
             self.learnable_fc = Linear(self.embed_dims, num_learnable_pts * 3)
@@ -193,14 +182,9 @@ class SparseBox3DKeyPointsGenerator(BaseModule):
         key_points = self.fix_scale * size
         if self.num_learnable_pts > 0 and instance_feature is not None:
             learnable_scale = (
-                self.learnable_fc(instance_feature)
-                .reshape(bs, num_anchor, self.num_learnable_pts, 3)
-                .sigmoid()
-                - 0.5
+                self.learnable_fc(instance_feature).reshape(bs, num_anchor, self.num_learnable_pts, 3).sigmoid() - 0.5
             )
-            key_points = torch.cat(
-                [key_points, learnable_scale * size], dim=-2
-            )
+            key_points = torch.cat([key_points, learnable_scale * size], dim=-2)
 
         rotation_mat = anchor.new_zeros([bs, num_anchor, 3, 3])
 
@@ -210,32 +194,21 @@ class SparseBox3DKeyPointsGenerator(BaseModule):
         rotation_mat[:, :, 1, 1] = anchor[:, :, COS_YAW]
         rotation_mat[:, :, 2, 2] = 1
 
-        key_points = torch.matmul(
-            rotation_mat[:, :, None], key_points[..., None]
-        ).squeeze(-1)
+        key_points = torch.matmul(rotation_mat[:, :, None], key_points[..., None]).squeeze(-1)
         key_points = key_points + anchor[..., None, [X, Y, Z]]
 
-        if (
-            cur_timestamp is None
-            or temp_timestamps is None
-            or T_cur2temp_list is None
-            or len(temp_timestamps) == 0
-        ):
+        if (cur_timestamp is None or temp_timestamps is None or T_cur2temp_list is None or len(temp_timestamps) == 0):
             return key_points
 
         temp_key_points_list = []
         velocity = anchor[..., VX:]
         for i, t_time in enumerate(temp_timestamps):
             time_interval = cur_timestamp - t_time
-            translation = (
-                velocity
-                * time_interval.to(dtype=velocity.dtype)[:, None, None]
-            )
+            translation = (velocity * time_interval.to(dtype=velocity.dtype)[:, None, None])
             temp_key_points = key_points - translation[:, :, None]
             T_cur2temp = T_cur2temp_list[i].to(dtype=key_points.dtype)
             temp_key_points = (
-                T_cur2temp[:, None, None, :3]
-                @ torch.cat(
+                T_cur2temp[:, None, None, :3] @ torch.cat(
                     [
                         temp_key_points,
                         torch.ones_like(temp_key_points[..., :1]),
@@ -259,37 +232,26 @@ class SparseBox3DKeyPointsGenerator(BaseModule):
         for i in range(len(T_src2dst_list)):
             vel = anchor[..., VX:]
             vel_dim = vel.shape[-1]
-            T_src2dst = torch.unsqueeze(
-                T_src2dst_list[i].to(dtype=anchor.dtype), dim=1
-            )
+            T_src2dst = torch.unsqueeze(T_src2dst_list[i].to(dtype=anchor.dtype), dim=1)
 
             center = anchor[..., [X, Y, Z]]
             if time_intervals is not None:
                 time_interval = time_intervals[i]
             elif src_timestamp is not None and dst_timestamps is not None:
-                time_interval = (src_timestamp - dst_timestamps[i]).to(
-                    dtype=vel.dtype
-                )
+                time_interval = (src_timestamp - dst_timestamps[i]).to(dtype=vel.dtype)
             else:
                 time_interval = None
             if time_interval is not None:
                 translation = vel.transpose(0, -1) * time_interval
                 translation = translation.transpose(0, -1)
                 center = center - translation
-            center = (
-                torch.matmul(
-                    T_src2dst[..., :3, :3], center[..., None]
-                ).squeeze(dim=-1)
-                + T_src2dst[..., :3, 3]
-            )
+            center = (torch.matmul(T_src2dst[..., :3, :3], center[..., None]).squeeze(dim=-1) + T_src2dst[..., :3, 3])
             size = anchor[..., [W, L, H]]
             yaw = torch.matmul(
                 T_src2dst[..., :2, :2],
                 anchor[..., [COS_YAW, SIN_YAW], None],
             ).squeeze(-1)
-            vel = torch.matmul(
-                T_src2dst[..., :vel_dim, :vel_dim], vel[..., None]
-            ).squeeze(-1)
+            vel = torch.matmul(T_src2dst[..., :vel_dim, :vel_dim], vel[..., None]).squeeze(-1)
             dst_anchor = torch.cat([center, size, yaw, vel], dim=-1)
             # TODO: Fix bug
             # index = [X, Y, Z, W, L, H, COS_YAW, SIN_YAW] + [VX, VY, VZ][:vel_dim]

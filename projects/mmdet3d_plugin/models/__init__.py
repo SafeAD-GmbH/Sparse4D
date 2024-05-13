@@ -14,7 +14,6 @@ from .detection3d import (
     SparseBox3DEncoder,
 )
 
-
 __all__ = [
     "Sparse4D",
     "Sparse4DHead",

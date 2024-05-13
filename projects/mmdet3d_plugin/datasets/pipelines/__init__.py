@@ -10,18 +10,10 @@ from .augment import (
     BBoxRotation,
     PhotoMetricDistortionMultiViewImage,
 )
-from .loading import LoadMultiViewImageFromFiles, LoadPointsFromFile, CustomLoadPointsFromFile
+from .loading import CustomLoadMultiViewImageFromFiles, BaseLoadPointsFromFile
 
 __all__ = [
-    "InstanceNameFilter",
-    "ResizeCropFlipImage",
-    "BBoxRotation",
-    "CircleObjectRangeFilter",
-    "MultiScaleDepthMapGenerator",
-    "NormalizeMultiviewImage",
-    "PhotoMetricDistortionMultiViewImage",
-    "NuScenesSparse4DAdaptor",
-    "LoadMultiViewImageFromFiles",
-    "LoadPointsFromFile",
-    "CustomLoadPointsFromFile"
+    "InstanceNameFilter", "ResizeCropFlipImage", "BBoxRotation", "CircleObjectRangeFilter",
+    "MultiScaleDepthMapGenerator", "NormalizeMultiviewImage", "PhotoMetricDistortionMultiViewImage",
+    "NuScenesSparse4DAdaptor", "CustomLoadMultiViewImageFromFiles", "BaseLoadPointsFromFile"
 ]

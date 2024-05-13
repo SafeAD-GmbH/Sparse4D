@@ -29,9 +29,7 @@ def box3d_to_corners(box3d):
     return corners
 
 
-def plot_rect3d_on_img(
-    img, num_rects, rect_corners, color=(0, 255, 0), thickness=1
-):
+def plot_rect3d_on_img(img, num_rects, rect_corners, color=(0, 255, 0), thickness=1):
     """Plot the boundary lines of 3D rectangular on 2D images.
 
     Args:
@@ -61,13 +59,8 @@ def plot_rect3d_on_img(
     for i in range(num_rects):
         corners = np.clip(rect_corners[i], -1e4, 1e5).astype(np.int32)
         for start, end in line_indices:
-            if (
-                (corners[start, 1] >= h or corners[start, 1] < 0)
-                or (corners[start, 0] >= w or corners[start, 0] < 0)
-            ) and (
-                (corners[end, 1] >= h or corners[end, 1] < 0)
-                or (corners[end, 0] >= w or corners[end, 0] < 0)
-            ):
+            if ((corners[start, 1] >= h or corners[start, 1] < 0) or (corners[start, 0] >= w or corners[start, 0] < 0)
+               ) and ((corners[end, 1] >= h or corners[end, 1] < 0) or (corners[end, 0] >= w or corners[end, 0] < 0)):
                 continue
             if isinstance(color[0], int):
                 cv2.line(
@@ -91,9 +84,7 @@ def plot_rect3d_on_img(
     return img.astype(np.uint8)
 
 
-def draw_lidar_bbox3d_on_img(
-    bboxes3d, raw_img, lidar2img_rt, img_metas=None, color=(0, 255, 0), thickness=1
-):
+def draw_lidar_bbox3d_on_img(bboxes3d, raw_img, lidar2img_rt, img_metas=None, color=(0, 255, 0), thickness=1):
     """Project the 3D bbox on 2D plane and draw on input image.
 
     Args:
@@ -111,9 +102,7 @@ def draw_lidar_bbox3d_on_img(
     # corners_3d = bboxes3d.corners
     corners_3d = box3d_to_corners(bboxes3d)
     num_bbox = corners_3d.shape[0]
-    pts_4d = np.concatenate(
-        [corners_3d.reshape(-1, 3), np.ones((num_bbox * 8, 1))], axis=-1
-    )
+    pts_4d = np.concatenate([corners_3d.reshape(-1, 3), np.ones((num_bbox * 8, 1))], axis=-1)
     lidar2img_rt = copy.deepcopy(lidar2img_rt).reshape(4, 4)
     if isinstance(lidar2img_rt, torch.Tensor):
         lidar2img_rt = lidar2img_rt.cpu().numpy()
@@ -134,10 +123,7 @@ def draw_points_on_img(points, img, lidar2img_rt, color=(0, 255, 0), circle=4):
     lidar2img_rt = copy.deepcopy(lidar2img_rt).reshape(4, 4)
     if isinstance(lidar2img_rt, torch.Tensor):
         lidar2img_rt = lidar2img_rt.cpu().numpy()
-    pts_2d = (
-        np.sum(points[:, :, None] * lidar2img_rt[:3, :3], axis=-1)
-        + lidar2img_rt[:3, 3]
-    )
+    pts_2d = (np.sum(points[:, :, None] * lidar2img_rt[:3, :3], axis=-1) + lidar2img_rt[:3, 3])
     pts_2d[..., 2] = np.clip(pts_2d[..., 2], a_min=1e-5, a_max=1e5)
     pts_2d = pts_2d[..., :2] / pts_2d[..., 2:3]
     pts_2d = np.clip(pts_2d, -1e4, 1e4).astype(np.int32)
@@ -152,8 +138,7 @@ def draw_points_on_img(points, img, lidar2img_rt, color=(0, 255, 0), circle=4):
     return img.astype(np.uint8)
 
 
-def draw_lidar_bbox3d_on_bev(
-    bboxes_3d, bev_size, bev_range=115, color=(255, 0, 0), thickness=3):
+def draw_lidar_bbox3d_on_bev(bboxes_3d, bev_size, bev_range=115, color=(255, 0, 0), thickness=3):
     if isinstance(bev_size, (list, tuple)):
         bev_h, bev_w = bev_size
     else:
@@ -183,9 +168,7 @@ def draw_lidar_bbox3d_on_bev(
         marking_color,
     )
     if len(bboxes_3d) != 0:
-        bev_corners = box3d_to_corners(bboxes_3d)[:, [0, 3, 4, 7]][
-            ..., [0, 1]
-        ]
+        bev_corners = box3d_to_corners(bboxes_3d)[:, [0, 3, 4, 7]][..., [0, 1]]
         xs = bev_corners[..., 0] / bev_resolution + bev_w / 2
         ys = -bev_corners[..., 1] / bev_resolution + bev_h / 2
         for obj_idx, (x, y) in enumerate(zip(xs, ys)):
@@ -207,18 +190,17 @@ def draw_lidar_bbox3d_on_bev(
 def draw_lidar_bbox3d(bboxes_3d, imgs, lidar2imgs, color=(255, 0, 0)):
     vis_imgs = []
     for i, (img, lidar2img) in enumerate(zip(imgs, lidar2imgs)):
-        vis_imgs.append(
-            draw_lidar_bbox3d_on_img(bboxes_3d, img, lidar2img, color=color)
-        )
+        vis_imgs.append(draw_lidar_bbox3d_on_img(bboxes_3d, img, lidar2img, color=color))
 
     num_imgs = len(vis_imgs)
     if num_imgs < 4 or num_imgs % 2 != 0:
         vis_imgs = np.concatenate(vis_imgs, axis=1)
     else:
-        vis_imgs = np.concatenate([
-            np.concatenate(vis_imgs[:num_imgs//2], axis=1),
-            np.concatenate(vis_imgs[num_imgs//2:], axis=1)
-        ], axis=0)
+        vis_imgs = np.concatenate(
+            [np.concatenate(vis_imgs[:num_imgs // 2], axis=1),
+             np.concatenate(vis_imgs[num_imgs // 2:], axis=1)],
+            axis=0
+        )
 
     bev = draw_lidar_bbox3d_on_bev(bboxes_3d, vis_imgs.shape[0], color=color)
     vis_imgs = np.concatenate([bev, vis_imgs], axis=1)

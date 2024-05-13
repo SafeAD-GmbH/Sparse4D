@@ -3,11 +3,11 @@ import torch
 import numpy as np
 from numpy import random
 import mmcv
-from mmdet.datasets.builder import PIPELINES
+from mmdet3d.registry import TRANSFORMS
 from PIL import Image
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class ResizeCropFlipImage(object):
     def __call__(self, results):
         aug_config = results.get("aug_config")
@@ -18,7 +18,8 @@ class ResizeCropFlipImage(object):
         new_imgs = []
         for i in range(N):
             img, mat = self._img_transform(
-                np.uint8(imgs[i]), aug_config,
+                np.uint8(imgs[i]),
+                aug_config,
             )
             new_imgs.append(np.array(img).astype(np.float32))
             results["lidar2img"][i] = mat @ results["lidar2img"][i]
@@ -61,18 +62,14 @@ class ResizeCropFlipImage(object):
         transform_matrix[:2, :2] *= resize
         transform_matrix[:2, 2] -= np.array(crop[:2])
         if flip:
-            flip_matrix = np.array(
-                [[-1, 0, crop[2] - crop[0]], [0, 1, 0], [0, 0, 1]]
-            )
+            flip_matrix = np.array([[-1, 0, crop[2] - crop[0]], [0, 1, 0], [0, 0, 1]])
             transform_matrix = flip_matrix @ transform_matrix
         rotate = rotate / 180 * np.pi
-        rot_matrix = np.array(
-            [
-                [np.cos(rotate), np.sin(rotate), 0],
-                [-np.sin(rotate), np.cos(rotate), 0],
-                [0, 0, 1],
-            ]
-        )
+        rot_matrix = np.array([
+            [np.cos(rotate), np.sin(rotate), 0],
+            [-np.sin(rotate), np.cos(rotate), 0],
+            [0, 0, 1],
+        ])
         rot_center = np.array([crop[2] - crop[0], crop[3] - crop[1]]) / 2
         rot_matrix[:2, 2] = -rot_matrix[:2, :2] @ rot_center + rot_center
         transform_matrix = rot_matrix @ transform_matrix
@@ -81,43 +78,35 @@ class ResizeCropFlipImage(object):
         return img, extend_matrix
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class BBoxRotation(object):
     def __call__(self, results):
         angle = results["aug_config"]["rotate_3d"]
         rot_cos = np.cos(angle)
         rot_sin = np.sin(angle)
 
-        rot_mat = np.array(
-            [
-                [rot_cos, -rot_sin, 0, 0],
-                [rot_sin, rot_cos, 0, 0],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1],
-            ]
-        )
+        rot_mat = np.array([
+            [rot_cos, -rot_sin, 0, 0],
+            [rot_sin, rot_cos, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+        ])
         rot_mat_inv = np.linalg.inv(rot_mat)
 
         num_view = len(results["lidar2img"])
         for view in range(num_view):
-            results["lidar2img"][view] = (
-                results["lidar2img"][view] @ rot_mat_inv
-            )
+            results["lidar2img"][view] = (results["lidar2img"][view] @ rot_mat_inv)
         if "lidar2global" in results:
             results["lidar2global"] = results["lidar2global"] @ rot_mat_inv
         if "gt_bboxes_3d" in results:
-            results["gt_bboxes_3d"] = self.box_rotate(
-                results["gt_bboxes_3d"], angle
-            )
+            results["gt_bboxes_3d"] = self.box_rotate(results["gt_bboxes_3d"], angle)
         return results
 
     @staticmethod
     def box_rotate(bbox_3d, angle):
         rot_cos = np.cos(angle)
         rot_sin = np.sin(angle)
-        rot_mat_T = np.array(
-            [[rot_cos, rot_sin, 0], [-rot_sin, rot_cos, 0], [0, 0, 1]]
-        )
+        rot_mat_T = np.array([[rot_cos, rot_sin, 0], [-rot_sin, rot_cos, 0], [0, 0, 1]])
         bbox_3d[:, :3] = bbox_3d[:, :3] @ rot_mat_T
         bbox_3d[:, 6] += angle
         if bbox_3d.shape[-1] > 7:
@@ -126,7 +115,7 @@ class BBoxRotation(object):
         return bbox_3d
 
 
-@PIPELINES.register_module()
+@TRANSFORMS.register_module()
 class PhotoMetricDistortionMultiViewImage:
     """Apply photometric distortion to image sequentially, every transformation
     is applied with a probability of 0.5. The position of random contrast is in
@@ -145,7 +134,6 @@ class PhotoMetricDistortionMultiViewImage:
         saturation_range (tuple): range of saturation.
         hue_delta (int): delta of hue.
     """
-
     def __init__(
         self,
         brightness_delta=32,
@@ -174,9 +162,7 @@ class PhotoMetricDistortionMultiViewImage:
             )
             # random brightness
             if random.randint(2):
-                delta = random.uniform(
-                    -self.brightness_delta, self.brightness_delta
-                )
+                delta = random.uniform(-self.brightness_delta, self.brightness_delta)
                 img += delta
 
             # mode == 0 --> do random contrast first
@@ -184,19 +170,15 @@ class PhotoMetricDistortionMultiViewImage:
             mode = random.randint(2)
             if mode == 1:
                 if random.randint(2):
-                    alpha = random.uniform(
-                        self.contrast_lower, self.contrast_upper
-                    )
+                    alpha = random.uniform(self.contrast_lower, self.contrast_upper)
                     img *= alpha
 
             # convert color from BGR to HSV
-            img = mmcv.bgr2hsv(img)
+            img = mmcv.image.bgr2hsv(img)
 
             # random saturation
             if random.randint(2):
-                img[..., 1] *= random.uniform(
-                    self.saturation_lower, self.saturation_upper
-                )
+                img[..., 1] *= random.uniform(self.saturation_lower, self.saturation_upper)
 
             # random hue
             if random.randint(2):
@@ -205,14 +187,12 @@ class PhotoMetricDistortionMultiViewImage:
                 img[..., 0][img[..., 0] < 0] += 360
 
             # convert color from HSV to BGR
-            img = mmcv.hsv2bgr(img)
+            img = mmcv.image.hsv2bgr(img)
 
             # random contrast
             if mode == 0:
                 if random.randint(2):
-                    alpha = random.uniform(
-                        self.contrast_lower, self.contrast_upper
-                    )
+                    alpha = random.uniform(self.contrast_lower, self.contrast_upper)
                     img *= alpha
 
             # randomly swap channels
