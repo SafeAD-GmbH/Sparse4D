@@ -1,0 +1,31 @@
+python3 -m venv venv
+source venv/bin/activate
+pip install torch==2.0.0 torchvision==0.15.1 torchaudio==2.0.1 --index-url https://download.pytorch.org/whl/cu118
+
+git clone https://github.com/HorizonRobotics/Sparse4D
+cd Sparse4D
+pip install -r requirement.txt
+cd projects/mmdet3d_plugin/ops
+python3 setup.py develop
+cd ../../../
+
+mkdir -p data/nuscenes
+cd data/nuscenes
+
+# Download the NuScenes mini dataset (v1.0-mini.tgz) from this url:
+# https://www.nuscenes.org/nuscenes#download
+# and extract it
+wget ...
+tar -xvf v1.0-mini.tgz
+
+cd ..
+mkdir nuscenes_anno_pkls
+cd ..
+
+python3 tools/nuscenes_converter.py --version v1.0-mini --info_prefix data/nuscenes_anno_pkls/nuscenes-mini
+export PYTHONPATH=`pwd`:$PYTHONPATH
+python3 tools/anchor_generator.py --ann_file data/nuscenes_anno_pkls/nuscenes-mini_infos_train.pkl
+mv _nuscenes_kmeans900.npy nuscenes_kmeans900.npy
+
+bash tools/dist_train.sh projects/configs/sparse4dv3_benchmark.py 1 --no-validate
+

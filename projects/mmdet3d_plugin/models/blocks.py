@@ -18,10 +18,7 @@ from mmcv.cnn.bricks.registry import (
     FEEDFORWARD_NETWORK,
 )
 
-try:
-    from ..ops import deformable_aggregation_function as DAF
-except:
-    DAF = None
+from ..ops import deformable_aggregation_function as DAF
 
 __all__ = [
     "DeformableFeatureAggregation",
