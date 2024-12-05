@@ -358,7 +358,7 @@ class NuScenes3DDetTrackDataset(Dataset):
             gt_names=gt_names_3d,
         )
         if "instance_inds" in info:
-            instance_inds = np.array(info["instance_inds"], dtype=np.int)[mask]
+            instance_inds = np.array(info["instance_inds"], dtype=np.int64)[mask]
             anns_results["instance_inds"] = instance_inds
         return anns_results
 
