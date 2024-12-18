@@ -6,7 +6,8 @@ custom_imports = dict(imports=['projects.mmdet3d_plugin'], allow_failed_imports=
 work_dir = None
 
 batch_size_per_gpu = 8
-num_epochs = 100
+num_gpus = 1
+num_epochs = 10
 
 compile = False
 input_shape = (1408, 512)
@@ -277,7 +278,7 @@ data_aug_conf = {
 
 train_dataloader = dict(
     batch_size=batch_size_per_gpu,
-    num_workers=2,
+    num_workers=8,
     persistent_workers=True,
     pin_memory=True,
     sampler=dict(type='DefaultSampler', shuffle=False),
@@ -307,7 +308,6 @@ optim_wrapper = dict(
 )
 
 # train params
-num_gpus = 8
 total_batch_size = batch_size_per_gpu * num_gpus
 num_iters_per_epoch = int(28130 // total_batch_size)
 eval_interval = 20 * num_iters_per_epoch

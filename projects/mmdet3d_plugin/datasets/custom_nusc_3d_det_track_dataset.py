@@ -86,7 +86,7 @@ class CustomNuScenes3DDetTrackDataset(Dataset):
         use_valid_flag=False,
         vis_score_threshold=0.25,
         data_aug_conf=None,
-        sequences_split_num=1,
+        sequences_split_num=4,
         with_seq_flag=False,
         keep_consistent_seq_aug=True,
         tracking=False,

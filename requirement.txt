@@ -13,4 +13,4 @@ onnx
 onnxruntime
 onnxruntime_extensions
 pandas
-matplotlib==3.10.0
+matplotlib==3.5.2
