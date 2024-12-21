@@ -1,9 +1,11 @@
 import torch
 import os
+import importlib
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-torch.ops.load_library(os.path.join(current_dir, 'custom_ops.cpython-310-x86_64-linux-gnu.so'))
+lib_suffix = importlib.machinery.EXTENSION_SUFFIXES[0]
+torch.ops.load_library(os.path.join(current_dir, 'custom_ops' + lib_suffix))
 
 
 def deformable_aggregation_function(mc_ms_feat, spatial_shape, scale_start_index, sampling_location, weights):
